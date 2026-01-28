@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quick Statistics — Enter Numbers</title>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <!-- Tukey boxplot plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/@sgratzl/chartjs-chart-boxplot@4.4.4/build/index.umd.min.js"></script>
+
+  <style>
+    :root { --bg:#0b0f17; --card:#121a28; --text:#e8eefc; --muted:#a9b6d3; --line:#23304a; --btn:#1f6feb; --ok:#2ea043; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 18px; }
+    h1 { font-size: 22px; margin: 6px 0 10px; }
+    .sub { color: var(--muted); margin: 0 0 16px; }
+    .grid2 { display:grid; grid-template-columns: 1.1fr 0.9fr; gap: 14px; }
+    .grid3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    @media (max-width: 980px){ .grid2{ grid-template-columns:1fr; } .grid3{ grid-template-columns:1fr; } }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; box-shadow: 0 8px 20px rgba(0,0,0,.25); }
+    textarea { width: 100%; min-height: 160px; resize: vertical; background: #0e1524; border: 1px solid var(--line); color: var(--text);
+      border-radius: 12px; padding: 12px; font-size: 14px; line-height: 1.35; outline: none; }
+    .row { display:flex; gap:10px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+    button { border: 1px solid var(--line); background: #0e1524; color: var(--text); padding: 10px 12px; border-radius: 12px; cursor: pointer; }
+    button.primary { background: var(--btn); border-color: transparent; }
+    button.success { background: var(--ok); border-color: transparent; }
+    button:hover { filter: brightness(1.08); }
+    .meta { margin-top: 10px; color: var(--muted); font-size: 13px; }
+    .small { font-size: 13px; color: var(--muted); }
+    .stats { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    @media (max-width: 520px){ .stats { grid-template-columns: 1fr; } }
+    .kv { border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: #0e1524; }
+    .kv .k { color: var(--muted); font-size: 12px; }
+    .kv .v { font-size: 16px; margin-top: 2px; }
+    .note { margin-top: 12px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: #0e1524; color: var(--text); }
+    .note .title { font-weight: 650; margin-bottom: 6px; }
+    .titleRow { display:flex; align-items: baseline; justify-content: space-between; gap:10px; }
+    .toast { margin-left:auto; color: var(--muted); font-size: 13px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <h1>Enter numbers → histogram + density + Tukey boxplot</h1>
+    <p class="sub">
+      Paste numbers below (separators: comma, semicolon, whitespace, or newline). All computations run locally in your browser.
+    </p>
+
+    <div class="grid2">
+      <div class="card">
+        <label for="data"><strong>Data</strong></label>
+        <textarea id="data" placeholder="Example: 1, 2, 2, 3, 3, 4, 100"></textarea>
+
+        <div class="row">
+          <button class="primary" id="analyze">Analyze</button>
+          <button id="example">Load example</button>
+          <button id="clear">Clear</button>
+          <button class="success" id="copyReport" disabled>Copy report</button>
+          <span class="toast" id="toast">—</span>
+        </div>
+
+        <div class="meta" id="parseInfo">—</div>
+      </div>
+
+      <div class="card">
+        <div class="titleRow">
+          <strong>Histogram</strong>
+          <span class="small">Binning: Freedman–Diaconis (fallback: √n)</span>
+        </div>
+        <canvas id="hist" height="190"></canvas>
+      </div>
+    </div>
+
+    <div style="height:14px"></div>
+
+    <div class="grid3">
+      <div class="card">
+        <div class="titleRow">
+          <strong>Density</strong>
+          <span class="small">KDE (Silverman bandwidth)</span>
+        </div>
+        <canvas id="density" height="190"></canvas>
+      </div>
+
+      <div class="card">
+        <div class="titleRow">
+          <strong>Tukey boxplot</strong>
+          <span class="small">outliers shown as points</span>
+        </div>
+        <canvas id="box" height="190"></canvas>
+      </div>
+
+      <div class="card">
+        <strong>Summary statistics</strong>
+        <div class="stats" id="stats"></div>
+        <div class="note" id="interpretation" style="display:none;"></div>
+        <div class="small" style="margin-top:10px;">
+          Tip: add a single extreme value and compare how the <em>mean</em> changes while the <em>median</em> remains stable.
+        </div>
+      </div>
+    </div>
+
+    <p class="small" style="margin-top:14px;">
+      This is a single-file static page (no backend required). It can be hosted for free on GitHub Pages / Cloudflare Pages / Netlify.
+    </p>
+  </div>
+
+<script>
+  // -------------------- Helpers --------------------
+  const fmt = (x) => {
+    if (!Number.isFinite(x)) return '—';
+    const ax = Math.abs(x);
+    const s = (ax >= 1000 ? x.toFixed(2) : x.toFixed(4));
+    return s.replace(/\.?0+$/,'');
+  };
+
+  function parseNumbers(raw) {
+    // separators: comma, semicolon, whitespace, newline
+    const cleaned = raw
+      .replace(/[，]/g, ',')
+      .replace(/[;]/g, ',')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!cleaned) return { nums: [], bad: 0 };
+
+    const tokens = cleaned.split(/[,\s]+/).filter(Boolean);
+    let bad = 0;
+    const nums = [];
+    for (const t of tokens) {
+      // tolerate accidental decimal comma within a token
+      const n = Number(t.replace(',', '.'));
+      if (Number.isFinite(n)) nums.push(n);
+      else bad++;
+    }
+    return { nums, bad };
+  }
+
+  function mean(a){ return a.reduce((s,x)=>s+x,0)/a.length; }
+
+  function median(sorted){
+    const n = sorted.length;
+    const mid = Math.floor(n/2);
+    return n%2 ? sorted[mid] : (sorted[mid-1]+sorted[mid])/2;
+  }
+
+  function quantile(sorted, q){
+    // linear interpolation
+    const n = sorted.length;
+    if (n === 1) return sorted[0];
+    const pos = (n - 1) * q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    if (sorted[base+1] === undefined) return sorted[base];
+    return sorted[base] + rest * (sorted[base+1] - sorted[base]);
+  }
+
+  function sampleStd(a){
+    const n = a.length;
+    if (n < 2) return NaN;
+    const m = mean(a);
+    let s2 = 0;
+    for (const x of a) s2 += (x-m)*(x-m);
+    return Math.sqrt(s2/(n-1));
+  }
+
+  function freedmanDiaconisBins(sorted){
+    const n = sorted.length;
+    if (n < 2) return { bins: 1 };
+    const q1 = quantile(sorted, 0.25);
+    const q3 = quantile(sorted, 0.75);
+    const iqr = q3 - q1;
+    const range = sorted[n-1] - sorted[0];
+    if (iqr <= 0 || range <= 0) return { bins: Math.ceil(Math.sqrt(n)) };
+    const h = 2 * iqr * Math.pow(n, -1/3);
+    const bins = Math.max(1, Math.ceil(range / h));
+    return { bins };
+  }
+
+  function histogram(sorted, bins){
+    const n = sorted.length;
+    const min = sorted[0], max = sorted[n-1];
+    if (min === max) {
+      return { labels: [`${fmt(min)}`], counts: [n] };
+    }
+    const width = (max - min) / bins;
+    const counts = new Array(bins).fill(0);
+    for (const x of sorted) {
+      const idx = Math.min(bins-1, Math.floor((x - min) / width));
+      counts[idx]++;
+    }
+    const labels = [];
+    for (let i=0;i<bins;i++){
+      const a = min + i*width;
+      const b = a + width;
+      labels.push(`${fmt(a)}–${fmt(b)}`);
+    }
+    return { labels, counts };
+  }
+
+  function skewSummary(sorted){
+    // heuristic: mean vs median + tail length ratio
+    const m = mean(sorted);
+    const med = median(sorted);
+    const min = sorted[0], max = sorted[sorted.length-1];
+    const left = med - min;
+    const right = max - med;
+    const delta = m - med;
+    const tailRatio = right / (left === 0 ? 1e-9 : left);
+
+    if (Math.abs(delta) < 1e-12 && Math.abs(tailRatio - 1) < 0.15) {
+      return { label: 'approximately symmetric', short: 'approximately symmetric', code: 'sym' };
+    }
+    if (delta > 0 && tailRatio > 1.2) {
+      return { label: 'right-skewed', short: 'right-skewed', code: 'right' };
+    }
+    if (delta < 0 && tailRatio < 0.8) {
+      return { label: 'left-skewed', short: 'left-skewed', code: 'left' };
+    }
+    if (delta > 0) return { label: 'likely right-skewed', short: 'likely right-skewed', code: 'right' };
+    if (delta < 0) return { label: 'likely left-skewed', short: 'likely left-skewed', code: 'left' };
+    return { label: 'no clear skewness pattern', short: 'no clear skewness pattern', code: 'unclear' };
+  }
+
+  // KDE (density curve)
+  function kdeGaussian(x, xi, h) {
+    const z = (x - xi) / h;
+    return Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
+  }
+
+  function densityKDE(sorted) {
+    const n = sorted.length;
+    const min = sorted[0], max = sorted[n - 1];
+    if (min === max) return { xs: [min], ys: [1] };
+
+    // Silverman's rule of thumb bandwidth
+    const sd = sampleStd(sorted);
+    let h = (Number.isFinite(sd) && sd > 0) ? 1.06 * sd * Math.pow(n, -1/5) : (max - min) / 10;
+    if (!Number.isFinite(h) || h <= 0) h = (max - min) / 10;
+
+    const steps = 140;
+    const xs = [];
+    const ys = [];
+    for (let i = 0; i <= steps; i++) {
+      const x = min + (max - min) * (i / steps);
+      let s = 0;
+      for (const xi of sorted) s += kdeGaussian(x, xi, h);
+      const y = s / (n * h); // density
+      xs.push(x);
+      ys.push(y);
+    }
+    return { xs, ys };
+  }
+
+  // -------------------- UI + Charts --------------------
+  const elData = document.getElementById('data');
+  const elParseInfo = document.getElementById('parseInfo');
+  const elStats = document.getElementById('stats');
+  const elInterp = document.getElementById('interpretation');
+  const elToast = document.getElementById('toast');
+  const btnCopy = document.getElementById('copyReport');
+
+  let chartHist, chartDensity, chartBox;
+  let lastReportText = '';
+  let lastHasData = false;
+
+  function statCard(k, v){
+    const div = document.createElement('div');
+    div.className = 'kv';
+    div.innerHTML = `<div class="k">${k}</div><div class="v">${v}</div>`;
+    return div;
+  }
+
+  function destroyCharts(){
+    if (chartHist) chartHist.destroy();
+    if (chartDensity) chartDensity.destroy();
+    if (chartBox) chartBox.destroy();
+    chartHist = chartDensity = chartBox = null;
+  }
+
+  function setToast(msg){
+    elToast.textContent = msg;
+  }
+
+  function buildReportText(summary){
+    // Academic, compact, report-ready paragraph.
+    // Uses median (IQR) + mean (SD) + skewness heuristic + Tukey outliers statement.
+    const {
+      n, min, max, meanVal, medianVal, sd, q1, q3, iqr, lo, hi, outliersCount, skew
+    } = summary;
+
+    const sdPart = Number.isFinite(sd) ? ` (SD = ${fmt(sd)})` : '';
+    const outPart = (outliersCount > 0)
+      ? ` Outliers were detected using Tukey’s rule (values < ${fmt(lo)} or > ${fmt(hi)}; count = ${outliersCount}).`
+      : ` No outliers were detected using Tukey’s rule (fences: < ${fmt(lo)} or > ${fmt(hi)}).`;
+
+    return (
+      `Dataset summary (n = ${n}). The distribution is ${skew.short}. ` +
+      `Median = ${fmt(medianVal)} (IQR = ${fmt(iqr)}; Q1 = ${fmt(q1)}, Q3 = ${fmt(q3)}). ` +
+      `Mean = ${fmt(meanVal)}${sdPart}. Range: min = ${fmt(min)}, max = ${fmt(max)}.` +
+      outPart
+    );
+  }
+
+  function render(nums, bad){
+    if (nums.length === 0){
+      elParseInfo.textContent = 'Enter at least one numeric value.';
+      elStats.innerHTML = '';
+      elInterp.style.display = 'none';
+      destroyCharts();
+      setToast('—');
+      btnCopy.disabled = true;
+      lastReportText = '';
+      lastHasData = false;
+      return;
+    }
+
+    const sorted = [...nums].sort((a,b)=>a-b);
+    const n = sorted.length;
+
+    const min = sorted[0], max = sorted[n-1];
+    const meanVal = mean(sorted);
+    const medianVal = median(sorted);
+    const sd = sampleStd(sorted);
+
+    const q1 = quantile(sorted, 0.25);
+    const q3 = quantile(sorted, 0.75);
+    const iqr = q3 - q1;
+
+    // Tukey fences for outliers
+    const lo = q1 - 1.5*iqr;
+    const hi = q3 + 1.5*iqr;
+    const outliers = sorted.filter(x => x < lo || x > hi);
+
+    const skew = skewSummary(sorted);
+
+    elParseInfo.textContent = `Parsed ${n} number(s). Ignored ${bad} invalid token(s).`;
+
+    // Stats cards
+    elStats.innerHTML = '';
+    elStats.appendChild(statCard('n', `${n}`));
+    elStats.appendChild(statCard('min', `${fmt(min)}`));
+    elStats.appendChild(statCard('max', `${fmt(max)}`));
+    elStats.appendChild(statCard('mean', `${fmt(meanVal)}`));
+    elStats.appendChild(statCard('median', `${fmt(medianVal)}`));
+    elStats.appendChild(statCard('sample SD', `${Number.isFinite(sd) ? fmt(sd) : '—'}`));
+    elStats.appendChild(statCard('Q1 (25%)', `${fmt(q1)}`));
+    elStats.appendChild(statCard('Q3 (75%)', `${fmt(q3)}`));
+    elStats.appendChild(statCard('IQR', `${fmt(iqr)}`));
+    elStats.appendChild(statCard('Tukey outliers', outliers.length ? `${outliers.length}` : '0'));
+
+    // Interpretation (short academic notes)
+    const meanVsMed = (meanVal > medianVal)
+      ? 'Mean > median, consistent with a right-tailed influence of larger values.'
+      : (meanVal < medianVal)
+        ? 'Mean < median, consistent with a left-tailed influence of smaller values.'
+        : 'Mean ≈ median, consistent with approximate symmetry.';
+    const outTxt = outliers.length
+      ? `Outliers (Tukey fences): values < ${fmt(lo)} or > ${fmt(hi)} (count = ${outliers.length}).`
+      : `No outliers detected by Tukey fences (< ${fmt(lo)} or > ${fmt(hi)}).`;
+
+    elInterp.style.display = 'block';
+    elInterp.innerHTML = `
+      <div class="title">Interpretation</div>
+      <div>• Distribution: <span class="mono">${skew.label}</span>.</div>
+      <div>• ${meanVsMed}</div>
+      <div>• ${outTxt}</div>
+    `;
+
+    // --- Histogram ---
+    const fd = freedmanDiaconisBins(sorted);
+    const bins = Math.min(60, Math.max(1, fd.bins));
+    const hist = histogram(sorted, bins);
+
+    const ctxH = document.getElementById('hist');
+    if (chartHist) chartHist.destroy();
+    chartHist = new Chart(ctxH, {
+      type: 'bar',
+      data: {
+        labels: hist.labels,
+        datasets: [{
+          label: 'Count',
+          data: hist.counts,
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { display: false } },
+          y: { beginAtZero: true }
+        }
+      }
+    });
+
+    // --- Density (KDE) ---
+    const den = densityKDE(sorted);
+    const ctxD = document.getElementById('density');
+    if (chartDensity) chartDensity.destroy();
+    chartDensity = new Chart(ctxD, {
+      type: 'line',
+      data: {
+        labels: den.xs.map(x => fmt(x)),
+        datasets: [{
+          label: 'Density',
+          data: den.ys,
+          pointRadius: 0,
+          borderWidth: 2,
+          tension: 0.25
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { display: false } },
+          y: { beginAtZero: true }
+        }
+      }
+    });
+
+    // --- Boxplot (Tukey) ---
+    const ctxB = document.getElementById('box');
+    if (chartBox) chartBox.destroy();
+    chartBox = new Chart(ctxB, {
+      type: 'boxplot',
+      data: {
+        labels: ['Data'],
+        datasets: [{
+          label: 'Boxplot',
+          data: [sorted] // plugin computes quartiles/outliers
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false } },
+          y: { beginAtZero: false }
+        }
+      }
+    });
+
+    // Report text for copying
+    const summary = { n, min, max, meanVal, medianVal, sd, q1, q3, iqr, lo, hi, outliersCount: outliers.length, skew };
+    lastReportText = buildReportText(summary);
+    lastHasData = true;
+    btnCopy.disabled = false;
+    setToast('Ready.');
+  }
+
+  // Clipboard copy with fallback
+  async function copyToClipboard(text){
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      // Fallback
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  document.getElementById('analyze').addEventListener('click', () => {
+    const { nums, bad } = parseNumbers(elData.value);
+    render(nums, bad);
+  });
+
+  document.getElementById('example').addEventListener('click', () => {
+    elData.value = "1, 2, 2, 3, 3, 4, 100\n5 6 7 8 9\n10";
+    const { nums, bad } = parseNumbers(elData.value);
+    render(nums, bad);
+  });
+
+  document.getElementById('clear').addEventListener('click', () => {
+    elData.value = "";
+    render([], 0);
+  });
+
+  btnCopy.addEventListener('click', async () => {
+    if (!lastHasData || !lastReportText) return;
+    const ok = await copyToClipboard(lastReportText);
+    setToast(ok ? 'Copied.' : 'Copy failed (browser blocked clipboard).');
+  });
+</script>
+</body>
+</html>
