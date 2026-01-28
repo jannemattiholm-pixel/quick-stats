@@ -5,40 +5,49 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Quick Statistics — Enter Numbers</title>
 
-  <!-- Chart.js -->
+  <!-- Chart.js (histogram + density) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <!-- Tukey boxplot plugin -->
-  <script src="https://cdn.jsdelivr.net/npm/@sgratzl/chartjs-chart-boxplot@4.4.4/build/index.umd.min.js"></script>
 
   <style>
-    :root { --bg:#0b0f17; --card:#121a28; --text:#e8eefc; --muted:#a9b6d3; --line:#23304a; --btn:#1f6feb; --ok:#2ea043; }
-    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--text); }
-    .wrap { max-width: 1200px; margin: 0 auto; padding: 18px; }
-    h1 { font-size: 22px; margin: 6px 0 10px; }
-    .sub { color: var(--muted); margin: 0 0 16px; }
-    .grid2 { display:grid; grid-template-columns: 1.1fr 0.9fr; gap: 14px; }
-    .grid3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
-    @media (max-width: 980px){ .grid2{ grid-template-columns:1fr; } .grid3{ grid-template-columns:1fr; } }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; box-shadow: 0 8px 20px rgba(0,0,0,.25); }
-    textarea { width: 100%; min-height: 160px; resize: vertical; background: #0e1524; border: 1px solid var(--line); color: var(--text);
-      border-radius: 12px; padding: 12px; font-size: 14px; line-height: 1.35; outline: none; }
-    .row { display:flex; gap:10px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
-    button { border: 1px solid var(--line); background: #0e1524; color: var(--text); padding: 10px 12px; border-radius: 12px; cursor: pointer; }
-    button.primary { background: var(--btn); border-color: transparent; }
-    button.success { background: var(--ok); border-color: transparent; }
-    button:hover { filter: brightness(1.08); }
-    .meta { margin-top: 10px; color: var(--muted); font-size: 13px; }
-    .small { font-size: 13px; color: var(--muted); }
-    .stats { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-    @media (max-width: 520px){ .stats { grid-template-columns: 1fr; } }
-    .kv { border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: #0e1524; }
-    .kv .k { color: var(--muted); font-size: 12px; }
-    .kv .v { font-size: 16px; margin-top: 2px; }
-    .note { margin-top: 12px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: #0e1524; color: var(--text); }
-    .note .title { font-weight: 650; margin-bottom: 6px; }
-    .titleRow { display:flex; align-items: baseline; justify-content: space-between; gap:10px; }
-    .toast { margin-left:auto; color: var(--muted); font-size: 13px; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    :root{
+      --bg:#0b0f17; --card:#121a28; --text:#e8eefc; --muted:#a9b6d3; --line:#23304a;
+      --btn:#1f6feb; --ok:#2ea043;
+    }
+    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); }
+    .wrap{ max-width:1200px; margin:0 auto; padding:18px; }
+    h1{ font-size:22px; margin:6px 0 10px; }
+    .sub{ color:var(--muted); margin:0 0 16px; }
+    .grid2{ display:grid; grid-template-columns:1.1fr 0.9fr; gap:14px; }
+    .grid3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+    @media (max-width:980px){ .grid2{ grid-template-columns:1fr; } .grid3{ grid-template-columns:1fr; } }
+
+    .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow:0 8px 20px rgba(0,0,0,.25); }
+    textarea{
+      width:100%; min-height:160px; resize:vertical; background:#0e1524; border:1px solid var(--line);
+      color:var(--text); border-radius:12px; padding:12px; font-size:14px; line-height:1.35; outline:none;
+    }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+    button{ border:1px solid var(--line); background:#0e1524; color:var(--text); padding:10px 12px; border-radius:12px; cursor:pointer; }
+    button.primary{ background:var(--btn); border-color:transparent; }
+    button.success{ background:var(--ok); border-color:transparent; }
+    button:hover{ filter:brightness(1.08); }
+    .meta{ margin-top:10px; color:var(--muted); font-size:13px; }
+    .small{ font-size:13px; color:var(--muted); }
+    .titleRow{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+    .toast{ margin-left:auto; color:var(--muted); font-size:13px; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    .stats{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+    @media (max-width:520px){ .stats{ grid-template-columns:1fr; } }
+    .kv{ border:1px solid var(--line); border-radius:12px; padding:10px; background:#0e1524; }
+    .kv .k{ color:var(--muted); font-size:12px; }
+    .kv .v{ font-size:16px; margin-top:2px; }
+
+    .note{ margin-top:12px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); background:#0e1524; color:var(--text); }
+    .note .title{ font-weight:650; margin-bottom:6px; }
+
+    /* Boxplot canvas gets a bit of padding */
+    #boxCanvas{ width:100%; height:190px; display:block; }
   </style>
 </head>
 
@@ -68,7 +77,7 @@
       <div class="card">
         <div class="titleRow">
           <strong>Histogram</strong>
-          <span class="small">Binning: Freedman–Diaconis (fallback: √n)</span>
+          <span class="small">Binning: Freedman–Diaconis (Tukey IQR; fallback: √n)</span>
         </div>
         <canvas id="hist" height="190"></canvas>
       </div>
@@ -88,9 +97,9 @@
       <div class="card">
         <div class="titleRow">
           <strong>Tukey boxplot</strong>
-          <span class="small">outliers shown as points</span>
+          <span class="small">outliers shown as points (consistent quartiles)</span>
         </div>
-        <canvas id="box" height="190"></canvas>
+        <canvas id="boxCanvas" width="800" height="190"></canvas>
       </div>
 
       <div class="card">
@@ -109,7 +118,7 @@
   </div>
 
 <script>
-  // -------------------- Helpers --------------------
+  // -------------------- Formatting --------------------
   const fmt = (x) => {
     if (!Number.isFinite(x)) return '—';
     const ax = Math.abs(x);
@@ -117,6 +126,7 @@
     return s.replace(/\.?0+$/,'');
   };
 
+  // -------------------- Parsing --------------------
   function parseNumbers(raw) {
     // separators: comma, semicolon, whitespace, newline
     const cleaned = raw
@@ -131,7 +141,6 @@
     let bad = 0;
     const nums = [];
     for (const t of tokens) {
-      // tolerate accidental decimal comma within a token
       const n = Number(t.replace(',', '.'));
       if (Number.isFinite(n)) nums.push(n);
       else bad++;
@@ -139,23 +148,24 @@
     return { nums, bad };
   }
 
+  // -------------------- Core stats --------------------
   function mean(a){ return a.reduce((s,x)=>s+x,0)/a.length; }
 
   function median(sorted){
     const n = sorted.length;
     const mid = Math.floor(n/2);
-    return n%2 ? sorted[mid] : (sorted[mid-1]+sorted[mid])/2;
+    return n % 2 ? sorted[mid] : (sorted[mid-1] + sorted[mid]) / 2;
   }
 
-  function quantile(sorted, q){
-    // linear interpolation
+  // Tukey-style quartiles ("median of halves"):
+  // - if n even: lower = first n/2, upper = last n/2
+  // - if n odd: exclude median, split remaining into halves
+  function tukeyQuartiles(sorted){
     const n = sorted.length;
-    if (n === 1) return sorted[0];
-    const pos = (n - 1) * q;
-    const base = Math.floor(pos);
-    const rest = pos - base;
-    if (sorted[base+1] === undefined) return sorted[base];
-    return sorted[base] + rest * (sorted[base+1] - sorted[base]);
+    if (n === 0) return { q1: NaN, q3: NaN };
+    const lower = sorted.slice(0, Math.floor(n/2));
+    const upper = sorted.slice(Math.ceil(n/2));
+    return { q1: median(lower), q3: median(upper) };
   }
 
   function sampleStd(a){
@@ -170,11 +180,10 @@
   function freedmanDiaconisBins(sorted){
     const n = sorted.length;
     if (n < 2) return { bins: 1 };
-    const q1 = quantile(sorted, 0.25);
-    const q3 = quantile(sorted, 0.75);
+    const { q1, q3 } = tukeyQuartiles(sorted);
     const iqr = q3 - q1;
     const range = sorted[n-1] - sorted[0];
-    if (iqr <= 0 || range <= 0) return { bins: Math.ceil(Math.sqrt(n)) };
+    if (!(iqr > 0) || !(range > 0)) return { bins: Math.ceil(Math.sqrt(n)) };
     const h = 2 * iqr * Math.pow(n, -1/3);
     const bins = Math.max(1, Math.ceil(range / h));
     return { bins };
@@ -183,15 +192,16 @@
   function histogram(sorted, bins){
     const n = sorted.length;
     const min = sorted[0], max = sorted[n-1];
-    if (min === max) {
-      return { labels: [`${fmt(min)}`], counts: [n] };
-    }
+    if (min === max) return { labels:[`${fmt(min)}`], counts:[n] };
+
     const width = (max - min) / bins;
     const counts = new Array(bins).fill(0);
+
     for (const x of sorted) {
       const idx = Math.min(bins-1, Math.floor((x - min) / width));
       counts[idx]++;
     }
+
     const labels = [];
     for (let i=0;i<bins;i++){
       const a = min + i*width;
@@ -202,7 +212,6 @@
   }
 
   function skewSummary(sorted){
-    // heuristic: mean vs median + tail length ratio
     const m = mean(sorted);
     const med = median(sorted);
     const min = sorted[0], max = sorted[sorted.length-1];
@@ -212,20 +221,16 @@
     const tailRatio = right / (left === 0 ? 1e-9 : left);
 
     if (Math.abs(delta) < 1e-12 && Math.abs(tailRatio - 1) < 0.15) {
-      return { label: 'approximately symmetric', short: 'approximately symmetric', code: 'sym' };
+      return { label:'approximately symmetric', short:'approximately symmetric', code:'sym' };
     }
-    if (delta > 0 && tailRatio > 1.2) {
-      return { label: 'right-skewed', short: 'right-skewed', code: 'right' };
-    }
-    if (delta < 0 && tailRatio < 0.8) {
-      return { label: 'left-skewed', short: 'left-skewed', code: 'left' };
-    }
-    if (delta > 0) return { label: 'likely right-skewed', short: 'likely right-skewed', code: 'right' };
-    if (delta < 0) return { label: 'likely left-skewed', short: 'likely left-skewed', code: 'left' };
-    return { label: 'no clear skewness pattern', short: 'no clear skewness pattern', code: 'unclear' };
+    if (delta > 0 && tailRatio > 1.2) return { label:'right-skewed', short:'right-skewed', code:'right' };
+    if (delta < 0 && tailRatio < 0.8) return { label:'left-skewed', short:'left-skewed', code:'left' };
+    if (delta > 0) return { label:'likely right-skewed', short:'likely right-skewed', code:'right' };
+    if (delta < 0) return { label:'likely left-skewed', short:'likely left-skewed', code:'left' };
+    return { label:'no clear skewness pattern', short:'no clear skewness pattern', code:'unclear' };
   }
 
-  // KDE (density curve)
+  // -------------------- KDE (density curve) --------------------
   function kdeGaussian(x, xi, h) {
     const z = (x - xi) / h;
     return Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
@@ -236,7 +241,6 @@
     const min = sorted[0], max = sorted[n - 1];
     if (min === max) return { xs: [min], ys: [1] };
 
-    // Silverman's rule of thumb bandwidth
     const sd = sampleStd(sorted);
     let h = (Number.isFinite(sd) && sd > 0) ? 1.06 * sd * Math.pow(n, -1/5) : (max - min) / 10;
     if (!Number.isFinite(h) || h <= 0) h = (max - min) / 10;
@@ -244,15 +248,137 @@
     const steps = 140;
     const xs = [];
     const ys = [];
+
     for (let i = 0; i <= steps; i++) {
       const x = min + (max - min) * (i / steps);
       let s = 0;
       for (const xi of sorted) s += kdeGaussian(x, xi, h);
-      const y = s / (n * h); // density
+      const y = s / (n * h);
       xs.push(x);
       ys.push(y);
     }
     return { xs, ys };
+  }
+
+  // -------------------- Boxplot drawing (consistent quartiles) --------------------
+  function drawBoxplot(canvas, summary){
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+
+    // Clear
+    ctx.clearRect(0,0,w,h);
+
+    // Panel styling (simple, neutral)
+    // We do not set specific colors; use current theme via semi-transparent strokes.
+    // However canvas requires explicit colors. We'll use subtle default-compatible ones.
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0)'; // transparent
+    ctx.fillRect(0,0,w,h);
+
+    const padX = 40;
+    const midY = Math.round(h * 0.5);
+
+    const { min, max, q1, q3, medianVal, lo, hi, outliers } = summary;
+
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max){
+      // Draw a single point label
+      ctx.fillStyle = 'rgba(232,238,252,0.85)';
+      ctx.font = '14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+      ctx.fillText('Not enough variation to draw a boxplot.', 14, 22);
+      ctx.restore();
+      return;
+    }
+
+    const scaleMin = min;
+    const scaleMax = max;
+
+    const xMap = (v) => {
+      const t = (v - scaleMin) / (scaleMax - scaleMin);
+      return padX + t * (w - 2*padX);
+    };
+
+    // Whiskers: Tukey fences clipped to data (common practice)
+    const whiskerLow = Math.max(min, lo);
+    const whiskerHigh = Math.min(max, hi);
+
+    const xMin = xMap(min);
+    const xMax = xMap(max);
+    const xWL = xMap(whiskerLow);
+    const xWH = xMap(whiskerHigh);
+    const xQ1 = xMap(q1);
+    const xQ3 = xMap(q3);
+    const xMed = xMap(medianVal);
+
+    // Draw axis ticks (min, q1, median, q3, max) lightly
+    ctx.strokeStyle = 'rgba(169,182,211,0.25)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padX, midY);
+    ctx.lineTo(w - padX, midY);
+    ctx.stroke();
+
+    // Box
+    const boxH = 52;
+    ctx.fillStyle = 'rgba(31,111,235,0.20)';
+    ctx.strokeStyle = 'rgba(31,111,235,0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.rect(xQ1, midY - boxH/2, (xQ3 - xQ1), boxH);
+    ctx.fill();
+    ctx.stroke();
+
+    // Median line
+    ctx.strokeStyle = 'rgba(232,238,252,0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(xMed, midY - boxH/2);
+    ctx.lineTo(xMed, midY + boxH/2);
+    ctx.stroke();
+
+    // Whiskers
+    ctx.strokeStyle = 'rgba(169,182,211,0.85)';
+    ctx.lineWidth = 2;
+
+    // Left whisker line from box to whisker low
+    ctx.beginPath();
+    ctx.moveTo(xQ1, midY);
+    ctx.lineTo(xWL, midY);
+    ctx.stroke();
+
+    // Right whisker line from box to whisker high
+    ctx.beginPath();
+    ctx.moveTo(xQ3, midY);
+    ctx.lineTo(xWH, midY);
+    ctx.stroke();
+
+    // Whisker caps
+    const capH = 22;
+    ctx.beginPath();
+    ctx.moveTo(xWL, midY - capH/2);
+    ctx.lineTo(xWL, midY + capH/2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(xWH, midY - capH/2);
+    ctx.lineTo(xWH, midY + capH/2);
+    ctx.stroke();
+
+    // Outliers as points
+    ctx.fillStyle = 'rgba(232,238,252,0.85)';
+    for (const v of outliers){
+      const x = xMap(v);
+      ctx.beginPath();
+      ctx.arc(x, midY, 4, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // Labels (min/max)
+    ctx.fillStyle = 'rgba(169,182,211,0.85)';
+    ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    ctx.fillText(`min ${fmt(min)}`, Math.max(6, xMin - 24), midY + 74);
+    ctx.fillText(`max ${fmt(max)}`, Math.min(w - 90, xMax - 24), midY + 74);
+
+    ctx.restore();
   }
 
   // -------------------- UI + Charts --------------------
@@ -263,7 +389,7 @@
   const elToast = document.getElementById('toast');
   const btnCopy = document.getElementById('copyReport');
 
-  let chartHist, chartDensity, chartBox;
+  let chartHist, chartDensity;
   let lastReportText = '';
   let lastHasData = false;
 
@@ -274,24 +400,10 @@
     return div;
   }
 
-  function destroyCharts(){
-    if (chartHist) chartHist.destroy();
-    if (chartDensity) chartDensity.destroy();
-    if (chartBox) chartBox.destroy();
-    chartHist = chartDensity = chartBox = null;
-  }
-
-  function setToast(msg){
-    elToast.textContent = msg;
-  }
+  function setToast(msg){ elToast.textContent = msg; }
 
   function buildReportText(summary){
-    // Academic, compact, report-ready paragraph.
-    // Uses median (IQR) + mean (SD) + skewness heuristic + Tukey outliers statement.
-    const {
-      n, min, max, meanVal, medianVal, sd, q1, q3, iqr, lo, hi, outliersCount, skew
-    } = summary;
-
+    const { n, min, max, meanVal, medianVal, sd, q1, q3, iqr, lo, hi, outliersCount, skew } = summary;
     const sdPart = Number.isFinite(sd) ? ` (SD = ${fmt(sd)})` : '';
     const outPart = (outliersCount > 0)
       ? ` Outliers were detected using Tukey’s rule (values < ${fmt(lo)} or > ${fmt(hi)}; count = ${outliersCount}).`
@@ -310,7 +422,11 @@
       elParseInfo.textContent = 'Enter at least one numeric value.';
       elStats.innerHTML = '';
       elInterp.style.display = 'none';
-      destroyCharts();
+      if (chartHist) chartHist.destroy();
+      if (chartDensity) chartDensity.destroy();
+      chartHist = chartDensity = null;
+      const boxCanvas = document.getElementById('boxCanvas');
+      boxCanvas.getContext('2d').clearRect(0,0,boxCanvas.width,boxCanvas.height);
       setToast('—');
       btnCopy.disabled = true;
       lastReportText = '';
@@ -326,11 +442,9 @@
     const medianVal = median(sorted);
     const sd = sampleStd(sorted);
 
-    const q1 = quantile(sorted, 0.25);
-    const q3 = quantile(sorted, 0.75);
+    const { q1, q3 } = tukeyQuartiles(sorted);
     const iqr = q3 - q1;
 
-    // Tukey fences for outliers
     const lo = q1 - 1.5*iqr;
     const hi = q3 + 1.5*iqr;
     const outliers = sorted.filter(x => x < lo || x > hi);
@@ -352,12 +466,13 @@
     elStats.appendChild(statCard('IQR', `${fmt(iqr)}`));
     elStats.appendChild(statCard('Tukey outliers', outliers.length ? `${outliers.length}` : '0'));
 
-    // Interpretation (short academic notes)
+    // Interpretation
     const meanVsMed = (meanVal > medianVal)
       ? 'Mean > median, consistent with a right-tailed influence of larger values.'
       : (meanVal < medianVal)
         ? 'Mean < median, consistent with a left-tailed influence of smaller values.'
         : 'Mean ≈ median, consistent with approximate symmetry.';
+
     const outTxt = outliers.length
       ? `Outliers (Tukey fences): values < ${fmt(lo)} or > ${fmt(hi)} (count = ${outliers.length}).`
       : `No outliers detected by Tukey fences (< ${fmt(lo)} or > ${fmt(hi)}).`;
@@ -370,7 +485,7 @@
       <div>• ${outTxt}</div>
     `;
 
-    // --- Histogram ---
+    // Histogram
     const fd = freedmanDiaconisBins(sorted);
     const bins = Math.min(60, Math.max(1, fd.bins));
     const hist = histogram(sorted, bins);
@@ -397,7 +512,7 @@
       }
     });
 
-    // --- Density (KDE) ---
+    // Density
     const den = densityKDE(sorted);
     const ctxD = document.getElementById('density');
     if (chartDensity) chartDensity.destroy();
@@ -423,43 +538,26 @@
       }
     });
 
-    // --- Boxplot (Tukey) ---
-    const ctxB = document.getElementById('box');
-    if (chartBox) chartBox.destroy();
-    chartBox = new Chart(ctxB, {
-      type: 'boxplot',
-      data: {
-        labels: ['Data'],
-        datasets: [{
-          label: 'Boxplot',
-          data: [sorted] // plugin computes quartiles/outliers
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { display: false } },
-          y: { beginAtZero: false }
-        }
-      }
-    });
+    // Consistent boxplot (manual draw)
+    const boxCanvas = document.getElementById('boxCanvas');
+    drawBoxplot(boxCanvas, { min, max, q1, q3, medianVal, lo, hi, outliers });
 
-    // Report text for copying
-    const summary = { n, min, max, meanVal, medianVal, sd, q1, q3, iqr, lo, hi, outliersCount: outliers.length, skew };
-    lastReportText = buildReportText(summary);
+    // Report copy
+    lastReportText = buildReportText({
+      n, min, max, meanVal, medianVal, sd, q1, q3, iqr,
+      lo, hi, outliersCount: outliers.length, skew
+    });
     lastHasData = true;
     btnCopy.disabled = false;
     setToast('Ready.');
   }
 
-  // Clipboard copy with fallback
+  // -------------------- Clipboard --------------------
   async function copyToClipboard(text){
     try {
       await navigator.clipboard.writeText(text);
       return true;
     } catch (e) {
-      // Fallback
       try {
         const ta = document.createElement('textarea');
         ta.value = text;
@@ -477,6 +575,7 @@
     }
   }
 
+  // -------------------- Events --------------------
   document.getElementById('analyze').addEventListener('click', () => {
     const { nums, bad } = parseNumbers(elData.value);
     render(nums, bad);
