@@ -18,14 +18,10 @@
     h1{ font-size:22px; margin:6px 0 10px; }
     .sub{ color:var(--muted); margin:0 0 16px; }
 
-    /* Layout
-       - Top row: Data + Histogram
-       - Bottom row: Density (compact), Boxplot (wide), Summary
-    */
     .grid2{ display:grid; grid-template-columns:1.1fr 0.9fr; gap:14px; }
     .grid3{
       display:grid;
-      grid-template-columns: 0.70fr 1.80fr 0.85fr; /* boxplot gets the most width */
+      grid-template-columns: 0.70fr 1.80fr 0.85fr; /* boxplot gets most width */
       gap:14px;
       align-items:start;
     }
@@ -60,19 +56,18 @@
     .note{ margin-top:12px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); background:#0e1524; color:var(--text); }
     .note .title{ font-weight:650; margin-bottom:6px; }
 
-    /* Make density/histogram a bit smaller; boxplot gets width (not height) */
     #hist{ height:150px !important; }
     #density{ height:130px !important; }
 
-    /* Boxplot canvas: moderate height, plenty of width */
-    #boxCanvas{ width:100%; height:220px; display:block; touch-action: none; } /* touch-action allows custom tooltip without scroll fighting */
+    /* Boxplot canvas */
+    #boxCanvas{ width:100%; height:220px; display:block; touch-action:none; }
 
-    /* Floating tooltip for boxplot */
+    /* Tooltip */
     .tip{
       position: fixed;
       z-index: 9999;
       display: none;
-      max-width: 320px;
+      max-width: 340px;
       background: #0e1524;
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -135,7 +130,7 @@
       <div class="card">
         <div class="titleRow">
           <strong>Tukey boxplot</strong>
-          <span class="small">hover/tap box for summary</span>
+          <span class="small">hover/tap: box, outliers, whisker tips</span>
         </div>
         <canvas id="boxCanvas" width="1200" height="220"></canvas>
         <div class="small" style="margin-top:10px;">
@@ -158,7 +153,6 @@
     </p>
   </div>
 
-  <!-- Boxplot tooltip -->
   <div id="boxTip" class="tip"></div>
 
 <script>
@@ -271,7 +265,7 @@
     return { label:'no clear skewness pattern', short:'no clear skewness pattern', code:'unclear' };
   }
 
-  // -------------------- KDE (density curve) --------------------
+  // -------------------- KDE --------------------
   function kdeGaussian(x, xi, h) {
     const z = (x - xi) / h;
     return Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
@@ -301,8 +295,8 @@
     return { xs, ys };
   }
 
-  // -------------------- Boxplot drawing (consistent quartiles) --------------------
-  // We store geometry for hit-testing (tooltip).
+  // -------------------- Boxplot drawing + hit geometry --------------------
+  // We store everything needed for tooltip hit-testing.
   let BOX_GEOM = null;
 
   function drawBoxplot(canvas, summary){
@@ -319,8 +313,7 @@
     const w = cssW, h = cssH;
     ctx.clearRect(0,0,w,h);
 
-    const { min, max, q1, q3, medianVal, lo, hi, outliers, n, iqr, outliersCount } = summary;
-
+    const { n, min, max, q1, q3, iqr, medianVal, lo, hi, outliers } = summary;
     BOX_GEOM = null;
 
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max){
@@ -359,7 +352,7 @@
     ctx.lineTo(w - padX, midY);
     ctx.stroke();
 
-    // Box (moderate height)
+    // Box
     const boxH = Math.min(70, Math.max(56, Math.round(h * 0.32)));
     const yTop = midY - boxH/2;
     const yBot = midY + boxH/2;
@@ -396,25 +389,31 @@
 
     // Caps
     const capH = 26;
+    const yCapTop = midY - capH/2;
+    const yCapBot = midY + capH/2;
+
     ctx.beginPath();
-    ctx.moveTo(xWL, midY - capH/2);
-    ctx.lineTo(xWL, midY + capH/2);
+    ctx.moveTo(xWL, yCapTop);
+    ctx.lineTo(xWL, yCapBot);
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(xWH, midY - capH/2);
-    ctx.lineTo(xWH, midY + capH/2);
+    ctx.moveTo(xWH, yCapTop);
+    ctx.lineTo(xWH, yCapBot);
     ctx.stroke();
 
     // Outliers (visible)
+    const outR = 6;
     ctx.fillStyle = 'rgba(232,238,252,0.98)';
     ctx.strokeStyle = 'rgba(232,238,252,0.55)';
     ctx.lineWidth = 1;
-    const r = 6;
+
+    const outPoints = [];
     for (const v of outliers){
       const x = xMap(v);
+      outPoints.push({ x, y: midY, v });
       ctx.beginPath();
-      ctx.arc(x, midY, r, 0, Math.PI*2);
+      ctx.arc(x, midY, outR, 0, Math.PI*2);
       ctx.fill();
       ctx.stroke();
     }
@@ -429,24 +428,26 @@
 
     // Save geometry for tooltip hit-testing
     BOX_GEOM = {
+      padX, midY,
       boxRect: { x1: xQ1, x2: xQ3, y1: yTop, y2: yBot },
-      medianX: xMed,
-      midY,
-      summary: { n, q1, q3, iqr, medianVal, outliersCount }
+      outR,
+      outPoints, // {x,y,v}
+      whisker: {
+        low:  { x: xWL, yTop: yCapTop, yBot: yCapBot, value: whiskerLow, fence: lo },
+        high: { x: xWH, yTop: yCapTop, yBot: yCapBot, value: whiskerHigh, fence: hi }
+      },
+      summary: { n, q1, q3, iqr, medianVal, outliersCount: outliers.length, lo, hi }
     };
   }
 
-  // -------------------- Boxplot tooltip behavior --------------------
+  // -------------------- Tooltip logic --------------------
   const tip = document.getElementById('boxTip');
 
   function showTip(clientX, clientY, contentHTML){
     tip.innerHTML = contentHTML;
-
-    // position near pointer with screen clamping
     const pad = 12;
     tip.style.display = 'block';
 
-    // measure after display
     const rect = tip.getBoundingClientRect();
     let x = clientX + 14;
     let y = clientY + 14;
@@ -458,27 +459,72 @@
     tip.style.top  = `${Math.max(pad, y)}px`;
   }
 
-  function hideTip(){
-    tip.style.display = 'none';
-  }
+  function hideTip(){ tip.style.display = 'none'; }
 
-  function hitTestBox(canvas, clientX, clientY){
-    if (!BOX_GEOM) return { hit:false };
-
+  function canvasClientToLocal(canvas, clientX, clientY){
     const r = canvas.getBoundingClientRect();
     const x = (clientX - r.left) * (canvas.clientWidth / r.width);
     const y = (clientY - r.top)  * (canvas.clientHeight / r.height);
-
-    // box hit only (as requested): within Q1–Q3 and within box height
-    const b = BOX_GEOM.boxRect;
-    const pad = 6; // forgiving
-    const hit = (x >= b.x1 - pad && x <= b.x2 + pad && y >= b.y1 - pad && y <= b.y2 + pad);
-
-    return { hit, x, y, geom: BOX_GEOM };
+    return { x, y };
   }
 
-  function tipHTML(geom){
-    const s = geom.summary;
+  function dist2(ax, ay, bx, by){
+    const dx = ax - bx, dy = ay - by;
+    return dx*dx + dy*dy;
+  }
+
+  // Priority: outlier point > whisker tip > box area
+  function hitTestBoxplot(canvas, clientX, clientY){
+    if (!BOX_GEOM) return { kind: 'none' };
+    const { x, y } = canvasClientToLocal(canvas, clientX, clientY);
+    const g = BOX_GEOM;
+
+    // 1) Outliers: check nearest within radius tolerance
+    const tol = 6; // extra pixels tolerance
+    const r = g.outR + tol;
+    const r2 = r*r;
+
+    let best = null;
+    for (const p of g.outPoints){
+      const d = dist2(x, y, p.x, p.y);
+      if (d <= r2 && (!best || d < best.d)) best = { kind:'outlier', d, v: p.v };
+    }
+    if (best) return best;
+
+    // 2) Whisker tips (caps): check near xWL/xWH and within cap y-range (+tolerance)
+    const xTol = 10;
+    const yTol = 8;
+
+    const wl = g.whisker.low;
+    const wh = g.whisker.high;
+
+    const hitWhiskerLow =
+      Math.abs(x - wl.x) <= xTol &&
+      y >= (wl.yTop - yTol) && y <= (wl.yBot + yTol);
+
+    if (hitWhiskerLow) {
+      return { kind:'whisker', side:'lower', value: wl.value, fence: wl.fence };
+    }
+
+    const hitWhiskerHigh =
+      Math.abs(x - wh.x) <= xTol &&
+      y >= (wh.yTop - yTol) && y <= (wh.yBot + yTol);
+
+    if (hitWhiskerHigh) {
+      return { kind:'whisker', side:'upper', value: wh.value, fence: wh.fence };
+    }
+
+    // 3) Box area
+    const b = g.boxRect;
+    const pad = 6;
+    const hitBox = (x >= b.x1 - pad && x <= b.x2 + pad && y >= b.y1 - pad && y <= b.y2 + pad);
+    if (hitBox) return { kind:'box' };
+
+    return { kind:'none' };
+  }
+
+  function tipHTML_box(){
+    const s = BOX_GEOM.summary;
     return `
       <div class="t">Boxplot summary</div>
       <div><span class="m">Median:</span> <span class="mono">${fmt(s.medianVal)}</span></div>
@@ -492,25 +538,52 @@
     `;
   }
 
+  function tipHTML_outlier(v){
+    const s = BOX_GEOM.summary;
+    return `
+      <div class="t">Outlier</div>
+      <div><span class="m">Value:</span> <span class="mono">${fmt(v)}</span></div>
+      <div class="m" style="margin-top:6px;">
+        Tukey fences: <span class="mono">&lt; ${fmt(s.lo)}</span> or <span class="mono">&gt; ${fmt(s.hi)}</span>
+      </div>
+    `;
+  }
+
+  function tipHTML_whisker(side, value, fence){
+    const label = side === 'lower' ? 'Lower whisker' : 'Upper whisker';
+    const fenceLabel = side === 'lower' ? 'Lower fence' : 'Upper fence';
+    return `
+      <div class="t">${label}</div>
+      <div><span class="m">Whisker value:</span> <span class="mono">${fmt(value)}</span></div>
+      <div class="m" style="margin-top:6px;">
+        ${fenceLabel}: <span class="mono">${fmt(fence)}</span>
+      </div>
+    `;
+  }
+
   function attachBoxInteractions(){
     const canvas = document.getElementById('boxCanvas');
 
-    canvas.addEventListener('mousemove', (e) => {
-      const ht = hitTestBox(canvas, e.clientX, e.clientY);
-      if (!ht.hit) { hideTip(); return; }
-      showTip(e.clientX, e.clientY, tipHTML(ht.geom));
-    });
+    const handlePointer = (clientX, clientY) => {
+      const hit = hitTestBoxplot(canvas, clientX, clientY);
+      if (hit.kind === 'none') { hideTip(); return; }
+      if (hit.kind === 'outlier') showTip(clientX, clientY, tipHTML_outlier(hit.v));
+      else if (hit.kind === 'whisker') showTip(clientX, clientY, tipHTML_whisker(hit.side, hit.value, hit.fence));
+      else showTip(clientX, clientY, tipHTML_box());
+    };
 
+    canvas.addEventListener('mousemove', (e) => handlePointer(e.clientX, e.clientY));
     canvas.addEventListener('mouseleave', () => hideTip());
 
-    // Touch: show tooltip while finger is on box; hide on end
     const onTouchMove = (ev) => {
       if (!ev.touches || ev.touches.length === 0) return;
       const t = ev.touches[0];
-      const ht = hitTestBox(canvas, t.clientX, t.clientY);
-      if (!ht.hit) { hideTip(); return; }
-      ev.preventDefault(); // avoid page scroll while inspecting box
-      showTip(t.clientX, t.clientY, tipHTML(ht.geom));
+      const hit = hitTestBoxplot(canvas, t.clientX, t.clientY);
+      if (hit.kind === 'none') { hideTip(); return; }
+      ev.preventDefault();
+      if (hit.kind === 'outlier') showTip(t.clientX, t.clientY, tipHTML_outlier(hit.v));
+      else if (hit.kind === 'whisker') showTip(t.clientX, t.clientY, tipHTML_whisker(hit.side, hit.value, hit.fence));
+      else showTip(t.clientX, t.clientY, tipHTML_box());
     };
 
     canvas.addEventListener('touchstart', onTouchMove, { passive:false });
@@ -653,7 +726,7 @@
       }
     });
 
-    // Density (compact)
+    // Density
     const den = densityKDE(sorted);
     const ctxD = document.getElementById('density');
     if (chartDensity) chartDensity.destroy();
@@ -679,10 +752,10 @@
       }
     });
 
-    // Boxplot (wide + tooltip-enabled)
+    // Boxplot (with full hit-geometry)
     drawBoxplot(boxCanvas, {
       n, min, max, q1, q3, iqr, medianVal,
-      lo, hi, outliers, outliersCount: outliers.length
+      lo, hi, outliers
     });
 
     // Report copy
@@ -741,24 +814,23 @@
     setToast(ok ? 'Copied.' : 'Copy failed (browser blocked clipboard).');
   });
 
-  // Resize handling: redraw boxplot to keep geometry aligned after layout changes
+  // Keep boxplot geometry aligned after resize
   let lastNums = [];
   let lastBad = 0;
-  const originalRender = render;
+  const _render = render;
   render = function(nums, bad){
     lastNums = nums;
     lastBad = bad;
-    originalRender(nums, bad);
+    _render(nums, bad);
   };
 
   window.addEventListener('resize', () => {
-    // Only redraw if we have data
     if (!lastNums || lastNums.length === 0) return;
-    originalRender(lastNums, lastBad);
+    _render(lastNums, lastBad);
     hideTip();
   });
 
-  // Attach box interactions once
+  // Attach interactions once
   attachBoxInteractions();
 </script>
 </body>
