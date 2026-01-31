@@ -17,9 +17,22 @@
     .wrap{ max-width:1200px; margin:0 auto; padding:18px; }
     h1{ font-size:22px; margin:6px 0 10px; }
     .sub{ color:var(--muted); margin:0 0 16px; }
+
+    /* Layout:
+       - Top row: Data + Histogram
+       - Bottom row: Density (smaller), Boxplot (larger), Summary
+    */
     .grid2{ display:grid; grid-template-columns:1.1fr 0.9fr; gap:14px; }
-    .grid3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
-    @media (max-width:980px){ .grid2{ grid-template-columns:1fr; } .grid3{ grid-template-columns:1fr; } }
+    .grid3{
+      display:grid;
+      grid-template-columns: 0.9fr 1.25fr 0.85fr; /* give boxplot more room */
+      gap:14px;
+      align-items: start;
+    }
+    @media (max-width:980px){
+      .grid2{ grid-template-columns:1fr; }
+      .grid3{ grid-template-columns:1fr; }
+    }
 
     .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow:0 8px 20px rgba(0,0,0,.25); }
     textarea{
@@ -46,8 +59,12 @@
     .note{ margin-top:12px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); background:#0e1524; color:var(--text); }
     .note .title{ font-weight:650; margin-bottom:6px; }
 
-    /* Boxplot canvas gets a bit of padding */
-    #boxCanvas{ width:100%; height:190px; display:block; }
+    /* Boxplot: bigger canvas */
+    #boxCanvas{ width:100%; height:270px; display:block; }
+
+    /* Histogram + Density: slightly smaller */
+    #hist{ height:155px !important; }
+    #density{ height:155px !important; }
   </style>
 </head>
 
@@ -79,7 +96,7 @@
           <strong>Histogram</strong>
           <span class="small">Binning: Freedman–Diaconis (Tukey IQR; fallback: √n)</span>
         </div>
-        <canvas id="hist" height="190"></canvas>
+        <canvas id="hist" height="155"></canvas>
       </div>
     </div>
 
@@ -91,15 +108,15 @@
           <strong>Density</strong>
           <span class="small">KDE (Silverman bandwidth)</span>
         </div>
-        <canvas id="density" height="190"></canvas>
+        <canvas id="density" height="155"></canvas>
       </div>
 
       <div class="card">
         <div class="titleRow">
           <strong>Tukey boxplot</strong>
-          <span class="small">outliers shown as points (consistent quartiles)</span>
+          <span class="small">outliers emphasized; quartiles consistent</span>
         </div>
-        <canvas id="boxCanvas" width="800" height="190"></canvas>
+        <canvas id="boxCanvas" width="1000" height="270"></canvas>
       </div>
 
       <div class="card">
@@ -128,7 +145,6 @@
 
   // -------------------- Parsing --------------------
   function parseNumbers(raw) {
-    // separators: comma, semicolon, whitespace, newline
     const cleaned = raw
       .replace(/[，]/g, ',')
       .replace(/[;]/g, ',')
@@ -157,9 +173,7 @@
     return n % 2 ? sorted[mid] : (sorted[mid-1] + sorted[mid]) / 2;
   }
 
-  // Tukey-style quartiles ("median of halves"):
-  // - if n even: lower = first n/2, upper = last n/2
-  // - if n odd: exclude median, split remaining into halves
+  // Tukey-style quartiles ("median of halves")
   function tukeyQuartiles(sorted){
     const n = sorted.length;
     if (n === 0) return { q1: NaN, q3: NaN };
@@ -263,54 +277,48 @@
   // -------------------- Boxplot drawing (consistent quartiles) --------------------
   function drawBoxplot(canvas, summary){
     const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
 
-    // Clear
+    // HiDPI crispness
+    const cssW = canvas.clientWidth || canvas.width;
+    const cssH = canvas.clientHeight || canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+
+    const w = cssW, h = cssH;
     ctx.clearRect(0,0,w,h);
 
-    // Panel styling (simple, neutral)
-    // We do not set specific colors; use current theme via semi-transparent strokes.
-    // However canvas requires explicit colors. We'll use subtle default-compatible ones.
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0)'; // transparent
-    ctx.fillRect(0,0,w,h);
-
-    const padX = 40;
-    const midY = Math.round(h * 0.5);
-
     const { min, max, q1, q3, medianVal, lo, hi, outliers } = summary;
-
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max){
-      // Draw a single point label
       ctx.fillStyle = 'rgba(232,238,252,0.85)';
       ctx.font = '14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
       ctx.fillText('Not enough variation to draw a boxplot.', 14, 22);
-      ctx.restore();
       return;
     }
 
+    const padX = 44;
+    const midY = Math.round(h * 0.50);
+
     const scaleMin = min;
     const scaleMax = max;
-
     const xMap = (v) => {
       const t = (v - scaleMin) / (scaleMax - scaleMin);
       return padX + t * (w - 2*padX);
     };
 
-    // Whiskers: Tukey fences clipped to data (common practice)
+    // Whiskers (Tukey fences clipped to data)
     const whiskerLow = Math.max(min, lo);
     const whiskerHigh = Math.min(max, hi);
 
-    const xMin = xMap(min);
-    const xMax = xMap(max);
     const xWL = xMap(whiskerLow);
     const xWH = xMap(whiskerHigh);
     const xQ1 = xMap(q1);
     const xQ3 = xMap(q3);
     const xMed = xMap(medianVal);
 
-    // Draw axis ticks (min, q1, median, q3, max) lightly
-    ctx.strokeStyle = 'rgba(169,182,211,0.25)';
+    // Baseline
+    ctx.strokeStyle = 'rgba(169,182,211,0.22)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(padX, midY);
@@ -318,9 +326,9 @@
     ctx.stroke();
 
     // Box
-    const boxH = 52;
-    ctx.fillStyle = 'rgba(31,111,235,0.20)';
-    ctx.strokeStyle = 'rgba(31,111,235,0.85)';
+    const boxH = Math.min(72, Math.max(56, Math.round(h * 0.30))); // bigger box visually
+    ctx.fillStyle = 'rgba(31,111,235,0.18)';
+    ctx.strokeStyle = 'rgba(31,111,235,0.90)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.rect(xQ1, midY - boxH/2, (xQ3 - xQ1), boxH);
@@ -328,31 +336,29 @@
     ctx.stroke();
 
     // Median line
-    ctx.strokeStyle = 'rgba(232,238,252,0.9)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(232,238,252,0.95)';
+    ctx.lineWidth = 2.4;
     ctx.beginPath();
     ctx.moveTo(xMed, midY - boxH/2);
     ctx.lineTo(xMed, midY + boxH/2);
     ctx.stroke();
 
     // Whiskers
-    ctx.strokeStyle = 'rgba(169,182,211,0.85)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(169,182,211,0.90)';
+    ctx.lineWidth = 2.2;
 
-    // Left whisker line from box to whisker low
     ctx.beginPath();
     ctx.moveTo(xQ1, midY);
     ctx.lineTo(xWL, midY);
     ctx.stroke();
 
-    // Right whisker line from box to whisker high
     ctx.beginPath();
     ctx.moveTo(xQ3, midY);
     ctx.lineTo(xWH, midY);
     ctx.stroke();
 
-    // Whisker caps
-    const capH = 22;
+    // Caps
+    const capH = 26;
     ctx.beginPath();
     ctx.moveTo(xWL, midY - capH/2);
     ctx.lineTo(xWL, midY + capH/2);
@@ -363,22 +369,27 @@
     ctx.lineTo(xWH, midY + capH/2);
     ctx.stroke();
 
-    // Outliers as points
-    ctx.fillStyle = 'rgba(232,238,252,0.85)';
+    // Outliers (slightly larger + more visible)
+    ctx.fillStyle = 'rgba(232,238,252,0.98)';
+    ctx.strokeStyle = 'rgba(232,238,252,0.55)';
+    ctx.lineWidth = 1;
+
+    const r = 6; // larger points
     for (const v of outliers){
       const x = xMap(v);
       ctx.beginPath();
-      ctx.arc(x, midY, 4, 0, Math.PI*2);
+      ctx.arc(x, midY, r, 0, Math.PI*2);
       ctx.fill();
+      ctx.stroke();
     }
 
-    // Labels (min/max)
-    ctx.fillStyle = 'rgba(169,182,211,0.85)';
+    // Labels
+    ctx.fillStyle = 'rgba(169,182,211,0.90)';
     ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-    ctx.fillText(`min ${fmt(min)}`, Math.max(6, xMin - 24), midY + 74);
-    ctx.fillText(`max ${fmt(max)}`, Math.min(w - 90, xMax - 24), midY + 74);
-
-    ctx.restore();
+    ctx.fillText(`min ${fmt(min)}`, 10, h - 12);
+    const maxLabel = `max ${fmt(max)}`;
+    const maxW = ctx.measureText(maxLabel).width;
+    ctx.fillText(maxLabel, w - 10 - maxW, h - 12);
   }
 
   // -------------------- UI + Charts --------------------
@@ -485,7 +496,7 @@
       <div>• ${outTxt}</div>
     `;
 
-    // Histogram
+    // Histogram (smaller)
     const fd = freedmanDiaconisBins(sorted);
     const bins = Math.min(60, Math.max(1, fd.bins));
     const hist = histogram(sorted, bins);
@@ -512,7 +523,7 @@
       }
     });
 
-    // Density
+    // Density (smaller)
     const den = densityKDE(sorted);
     const ctxD = document.getElementById('density');
     if (chartDensity) chartDensity.destroy();
@@ -538,7 +549,7 @@
       }
     });
 
-    // Consistent boxplot (manual draw)
+    // Boxplot (bigger + emphasized outliers)
     const boxCanvas = document.getElementById('boxCanvas');
     drawBoxplot(boxCanvas, { min, max, q1, q3, medianVal, lo, hi, outliers });
 
