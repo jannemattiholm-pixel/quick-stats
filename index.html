@@ -14,20 +14,20 @@
       --btn:#1f6feb; --ok:#2ea043;
     }
     body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); }
-    .wrap{ max-width:1200px; margin:0 auto; padding:18px; }
+    .wrap{ max-width:1280px; margin:0 auto; padding:18px; }
     h1{ font-size:22px; margin:6px 0 10px; }
     .sub{ color:var(--muted); margin:0 0 16px; }
 
-    /* Layout:
+    /* Layout
        - Top row: Data + Histogram
-       - Bottom row: Density (smaller), Boxplot (larger), Summary
+       - Bottom row: Density (compact), Boxplot (wide), Summary
     */
     .grid2{ display:grid; grid-template-columns:1.1fr 0.9fr; gap:14px; }
     .grid3{
       display:grid;
-      grid-template-columns: 0.9fr 1.25fr 0.85fr; /* give boxplot more room */
+      grid-template-columns: 0.70fr 1.80fr 0.85fr; /* boxplot gets the most width */
       gap:14px;
-      align-items: start;
+      align-items:start;
     }
     @media (max-width:980px){
       .grid2{ grid-template-columns:1fr; }
@@ -44,6 +44,7 @@
     button.primary{ background:var(--btn); border-color:transparent; }
     button.success{ background:var(--ok); border-color:transparent; }
     button:hover{ filter:brightness(1.08); }
+
     .meta{ margin-top:10px; color:var(--muted); font-size:13px; }
     .small{ font-size:13px; color:var(--muted); }
     .titleRow{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
@@ -59,12 +60,32 @@
     .note{ margin-top:12px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); background:#0e1524; color:var(--text); }
     .note .title{ font-weight:650; margin-bottom:6px; }
 
-    /* Boxplot: bigger canvas */
-    #boxCanvas{ width:100%; height:270px; display:block; }
+    /* Make density/histogram a bit smaller; boxplot gets width (not height) */
+    #hist{ height:150px !important; }
+    #density{ height:130px !important; }
 
-    /* Histogram + Density: slightly smaller */
-    #hist{ height:155px !important; }
-    #density{ height:155px !important; }
+    /* Boxplot canvas: moderate height, plenty of width */
+    #boxCanvas{ width:100%; height:220px; display:block; touch-action: none; } /* touch-action allows custom tooltip without scroll fighting */
+
+    /* Floating tooltip for boxplot */
+    .tip{
+      position: fixed;
+      z-index: 9999;
+      display: none;
+      max-width: 320px;
+      background: #0e1524;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      color: var(--text);
+      box-shadow: 0 12px 28px rgba(0,0,0,.35);
+      pointer-events: none;
+      font-size: 12.5px;
+      line-height: 1.25;
+    }
+    .tip .t{ font-weight: 650; margin-bottom: 6px; }
+    .tip .m{ color: var(--muted); }
+    .tip .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   </style>
 </head>
 
@@ -96,7 +117,7 @@
           <strong>Histogram</strong>
           <span class="small">Binning: Freedman–Diaconis (Tukey IQR; fallback: √n)</span>
         </div>
-        <canvas id="hist" height="155"></canvas>
+        <canvas id="hist" height="150"></canvas>
       </div>
     </div>
 
@@ -108,15 +129,18 @@
           <strong>Density</strong>
           <span class="small">KDE (Silverman bandwidth)</span>
         </div>
-        <canvas id="density" height="155"></canvas>
+        <canvas id="density" height="130"></canvas>
       </div>
 
       <div class="card">
         <div class="titleRow">
           <strong>Tukey boxplot</strong>
-          <span class="small">outliers emphasized; quartiles consistent</span>
+          <span class="small">hover/tap box for summary</span>
         </div>
-        <canvas id="boxCanvas" width="1000" height="270"></canvas>
+        <canvas id="boxCanvas" width="1200" height="220"></canvas>
+        <div class="small" style="margin-top:10px;">
+          Quartiles: Tukey (median of halves). Outliers: outside Tukey fences.
+        </div>
       </div>
 
       <div class="card">
@@ -133,6 +157,9 @@
       This is a single-file static page (no backend required). It can be hosted for free on GitHub Pages / Cloudflare Pages / Netlify.
     </p>
   </div>
+
+  <!-- Boxplot tooltip -->
+  <div id="boxTip" class="tip"></div>
 
 <script>
   // -------------------- Formatting --------------------
@@ -275,6 +302,9 @@
   }
 
   // -------------------- Boxplot drawing (consistent quartiles) --------------------
+  // We store geometry for hit-testing (tooltip).
+  let BOX_GEOM = null;
+
   function drawBoxplot(canvas, summary){
     const ctx = canvas.getContext('2d');
 
@@ -289,7 +319,10 @@
     const w = cssW, h = cssH;
     ctx.clearRect(0,0,w,h);
 
-    const { min, max, q1, q3, medianVal, lo, hi, outliers } = summary;
+    const { min, max, q1, q3, medianVal, lo, hi, outliers, n, iqr, outliersCount } = summary;
+
+    BOX_GEOM = null;
+
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max){
       ctx.fillStyle = 'rgba(232,238,252,0.85)';
       ctx.font = '14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
@@ -297,11 +330,12 @@
       return;
     }
 
-    const padX = 44;
+    const padX = 52;
     const midY = Math.round(h * 0.50);
 
     const scaleMin = min;
     const scaleMax = max;
+
     const xMap = (v) => {
       const t = (v - scaleMin) / (scaleMax - scaleMin);
       return padX + t * (w - 2*padX);
@@ -325,13 +359,16 @@
     ctx.lineTo(w - padX, midY);
     ctx.stroke();
 
-    // Box
-    const boxH = Math.min(72, Math.max(56, Math.round(h * 0.30))); // bigger box visually
+    // Box (moderate height)
+    const boxH = Math.min(70, Math.max(56, Math.round(h * 0.32)));
+    const yTop = midY - boxH/2;
+    const yBot = midY + boxH/2;
+
     ctx.fillStyle = 'rgba(31,111,235,0.18)';
-    ctx.strokeStyle = 'rgba(31,111,235,0.90)';
+    ctx.strokeStyle = 'rgba(31,111,235,0.92)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.rect(xQ1, midY - boxH/2, (xQ3 - xQ1), boxH);
+    ctx.rect(xQ1, yTop, (xQ3 - xQ1), boxH);
     ctx.fill();
     ctx.stroke();
 
@@ -339,8 +376,8 @@
     ctx.strokeStyle = 'rgba(232,238,252,0.95)';
     ctx.lineWidth = 2.4;
     ctx.beginPath();
-    ctx.moveTo(xMed, midY - boxH/2);
-    ctx.lineTo(xMed, midY + boxH/2);
+    ctx.moveTo(xMed, yTop);
+    ctx.lineTo(xMed, yBot);
     ctx.stroke();
 
     // Whiskers
@@ -369,12 +406,11 @@
     ctx.lineTo(xWH, midY + capH/2);
     ctx.stroke();
 
-    // Outliers (slightly larger + more visible)
+    // Outliers (visible)
     ctx.fillStyle = 'rgba(232,238,252,0.98)';
     ctx.strokeStyle = 'rgba(232,238,252,0.55)';
     ctx.lineWidth = 1;
-
-    const r = 6; // larger points
+    const r = 6;
     for (const v of outliers){
       const x = xMap(v);
       ctx.beginPath();
@@ -390,6 +426,97 @@
     const maxLabel = `max ${fmt(max)}`;
     const maxW = ctx.measureText(maxLabel).width;
     ctx.fillText(maxLabel, w - 10 - maxW, h - 12);
+
+    // Save geometry for tooltip hit-testing
+    BOX_GEOM = {
+      boxRect: { x1: xQ1, x2: xQ3, y1: yTop, y2: yBot },
+      medianX: xMed,
+      midY,
+      summary: { n, q1, q3, iqr, medianVal, outliersCount }
+    };
+  }
+
+  // -------------------- Boxplot tooltip behavior --------------------
+  const tip = document.getElementById('boxTip');
+
+  function showTip(clientX, clientY, contentHTML){
+    tip.innerHTML = contentHTML;
+
+    // position near pointer with screen clamping
+    const pad = 12;
+    tip.style.display = 'block';
+
+    // measure after display
+    const rect = tip.getBoundingClientRect();
+    let x = clientX + 14;
+    let y = clientY + 14;
+
+    if (x + rect.width + pad > window.innerWidth) x = clientX - rect.width - 14;
+    if (y + rect.height + pad > window.innerHeight) y = clientY - rect.height - 14;
+
+    tip.style.left = `${Math.max(pad, x)}px`;
+    tip.style.top  = `${Math.max(pad, y)}px`;
+  }
+
+  function hideTip(){
+    tip.style.display = 'none';
+  }
+
+  function hitTestBox(canvas, clientX, clientY){
+    if (!BOX_GEOM) return { hit:false };
+
+    const r = canvas.getBoundingClientRect();
+    const x = (clientX - r.left) * (canvas.clientWidth / r.width);
+    const y = (clientY - r.top)  * (canvas.clientHeight / r.height);
+
+    // box hit only (as requested): within Q1–Q3 and within box height
+    const b = BOX_GEOM.boxRect;
+    const pad = 6; // forgiving
+    const hit = (x >= b.x1 - pad && x <= b.x2 + pad && y >= b.y1 - pad && y <= b.y2 + pad);
+
+    return { hit, x, y, geom: BOX_GEOM };
+  }
+
+  function tipHTML(geom){
+    const s = geom.summary;
+    return `
+      <div class="t">Boxplot summary</div>
+      <div><span class="m">Median:</span> <span class="mono">${fmt(s.medianVal)}</span></div>
+      <div class="m" style="margin-top:6px;">
+        n = <span class="mono">${s.n}</span>,
+        Q1 = <span class="mono">${fmt(s.q1)}</span>,
+        Q3 = <span class="mono">${fmt(s.q3)}</span>,
+        IQR = <span class="mono">${fmt(s.iqr)}</span>,
+        outliers = <span class="mono">${s.outliersCount}</span>
+      </div>
+    `;
+  }
+
+  function attachBoxInteractions(){
+    const canvas = document.getElementById('boxCanvas');
+
+    canvas.addEventListener('mousemove', (e) => {
+      const ht = hitTestBox(canvas, e.clientX, e.clientY);
+      if (!ht.hit) { hideTip(); return; }
+      showTip(e.clientX, e.clientY, tipHTML(ht.geom));
+    });
+
+    canvas.addEventListener('mouseleave', () => hideTip());
+
+    // Touch: show tooltip while finger is on box; hide on end
+    const onTouchMove = (ev) => {
+      if (!ev.touches || ev.touches.length === 0) return;
+      const t = ev.touches[0];
+      const ht = hitTestBox(canvas, t.clientX, t.clientY);
+      if (!ht.hit) { hideTip(); return; }
+      ev.preventDefault(); // avoid page scroll while inspecting box
+      showTip(t.clientX, t.clientY, tipHTML(ht.geom));
+    };
+
+    canvas.addEventListener('touchstart', onTouchMove, { passive:false });
+    canvas.addEventListener('touchmove',  onTouchMove, { passive:false });
+    canvas.addEventListener('touchend',   () => hideTip());
+    canvas.addEventListener('touchcancel',() => hideTip());
   }
 
   // -------------------- UI + Charts --------------------
@@ -429,6 +556,8 @@
   }
 
   function render(nums, bad){
+    const boxCanvas = document.getElementById('boxCanvas');
+
     if (nums.length === 0){
       elParseInfo.textContent = 'Enter at least one numeric value.';
       elStats.innerHTML = '';
@@ -436,8 +565,9 @@
       if (chartHist) chartHist.destroy();
       if (chartDensity) chartDensity.destroy();
       chartHist = chartDensity = null;
-      const boxCanvas = document.getElementById('boxCanvas');
       boxCanvas.getContext('2d').clearRect(0,0,boxCanvas.width,boxCanvas.height);
+      BOX_GEOM = null;
+      hideTip();
       setToast('—');
       btnCopy.disabled = true;
       lastReportText = '';
@@ -496,7 +626,7 @@
       <div>• ${outTxt}</div>
     `;
 
-    // Histogram (smaller)
+    // Histogram
     const fd = freedmanDiaconisBins(sorted);
     const bins = Math.min(60, Math.max(1, fd.bins));
     const hist = histogram(sorted, bins);
@@ -523,7 +653,7 @@
       }
     });
 
-    // Density (smaller)
+    // Density (compact)
     const den = densityKDE(sorted);
     const ctxD = document.getElementById('density');
     if (chartDensity) chartDensity.destroy();
@@ -549,9 +679,11 @@
       }
     });
 
-    // Boxplot (bigger + emphasized outliers)
-    const boxCanvas = document.getElementById('boxCanvas');
-    drawBoxplot(boxCanvas, { min, max, q1, q3, medianVal, lo, hi, outliers });
+    // Boxplot (wide + tooltip-enabled)
+    drawBoxplot(boxCanvas, {
+      n, min, max, q1, q3, iqr, medianVal,
+      lo, hi, outliers, outliersCount: outliers.length
+    });
 
     // Report copy
     lastReportText = buildReportText({
@@ -608,6 +740,26 @@
     const ok = await copyToClipboard(lastReportText);
     setToast(ok ? 'Copied.' : 'Copy failed (browser blocked clipboard).');
   });
+
+  // Resize handling: redraw boxplot to keep geometry aligned after layout changes
+  let lastNums = [];
+  let lastBad = 0;
+  const originalRender = render;
+  render = function(nums, bad){
+    lastNums = nums;
+    lastBad = bad;
+    originalRender(nums, bad);
+  };
+
+  window.addEventListener('resize', () => {
+    // Only redraw if we have data
+    if (!lastNums || lastNums.length === 0) return;
+    originalRender(lastNums, lastBad);
+    hideTip();
+  });
+
+  // Attach box interactions once
+  attachBoxInteractions();
 </script>
 </body>
 </html>
